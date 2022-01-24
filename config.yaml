@@ -1,0 +1,8 @@
+---
+influxdb:
+  endpoint: "http://localhost:8086"
+  org: "my-org"
+  bucket: "clinic"
+  token: "xxx"
+
+prom:
