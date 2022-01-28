@@ -46,6 +46,10 @@ func (ep *ReportEndpoint) QueryAnnotation(api *ReportAPI) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
 		// TODO(shenjun): define struct
 		param := &QueryAnnotationsParam{}
+		param.TiDBClusterID = req.URL.Query().Get("tidb_cluster_id")
+		param.StartTS, _ = strconv.ParseInt(req.URL.Query().Get("start_ts"), 10, 64)
+		param.EndTS, _ = strconv.ParseInt(req.URL.Query().Get("end_ts"), 10, 64)
+
 		data, err := api.QueryAnnotations(req.Context(), param)
 		if err != nil {
 			log.Error("query annotations failed", zap.Error(err))
@@ -54,7 +58,6 @@ func (ep *ReportEndpoint) QueryAnnotation(api *ReportAPI) http.HandlerFunc {
 		}
 		ResponseWithJSON(w, data)
 	}
-
 }
 
 func (ep *ReportEndpoint) InsertSample(api *ReportAPI) http.HandlerFunc {
