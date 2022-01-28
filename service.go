@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
 	"github.com/influxdata/influxdb-client-go/v2/api"
@@ -69,16 +68,18 @@ func (api *ReportAPI) Close() {
 
 func (api *ReportAPI) QueryNodeGraph(ctx context.Context, param *QueryNodeGraphParam) (*QueryNodeGraphData, error) {
 	// build the flux query
-	fluxQuery := `
+	fluxQueryBase := `
 from(bucket: "%s")
-	|> range(start:0)
-	|> filter(fn:(r) => r._measurement =="fast-tune-similarity")
+	|> range(start: %v, stop: %v)
+	|> filter(fn:(r) => r._measurement =="fast-tune-similarity" and r.tidb_cluster_id == "%v")
 	|> group(columns: ["id"])
 	|> first()
 	|> filter(fn:(r) => r._value >= 0.85)
 	|> sort(columns: ["id"])
 `
-	result, err := api.queryAPI.Query(ctx, fmt.Sprintf(fluxQuery, api.bucket))
+	fluxQuery := fmt.Sprintf(fluxQueryBase, api.bucket, param.StartTS, param.EndTS, param.TiDBClusterID)
+	fmt.Println(fluxQuery)
+	result, err := api.queryAPI.Query(ctx, fluxQuery)
 	if err != nil {
 		log.Error("query influxdb failed", zap.Error(err))
 		return nil, err
@@ -143,8 +144,47 @@ from(bucket: "%s")
 	return &data, nil
 }
 
-func (api *ReportAPI) QueryAnnotations(ctx context.Context, param *QueryAnnotationsParam) (*QueryAnnotationsData, error) {
-	return nil, errors.New("todo")
+func (api *ReportAPI) QueryAnnotations(ctx context.Context, param *QueryAnnotationsParam) (QueryAnnotationsData, error) {
+	fluxQueryBase := `
+from(bucket: "%s")
+	|> range(start: %v, stop: %v)
+	|> filter(fn:(r) => r._measurement =="fast-tune-anomaly" and r.tidb_cluster_id == "%v")
+`
+	fluxQuery := fmt.Sprintf(fluxQueryBase, api.bucket, param.StartTS, param.EndTS, param.TiDBClusterID)
+
+	result, err := api.queryAPI.Query(ctx, fluxQuery)
+	if err != nil {
+		log.Error("query influxdb failed", zap.Error(err))
+		return nil, err
+	}
+	defer result.Close()
+
+	data := make(QueryAnnotationsData, 0)
+	for result.Next() {
+		item := QueryAnnotationItem{
+			Annotation: DefaultAnomalyAnnotation(),
+			Time:       0,
+			TimeEnd:    0,
+			Title:      "",
+			Tags:       "",
+			Text:       "",
+		}
+		rd := result.Record()
+		item.Time = rd.Time().Unix()
+		endTime := rd.ValueByKey("end_time")
+		if endTs, ok := endTime.(int64); ok {
+			item.TimeEnd = endTs
+		}
+		item.Title = "anomaly title"
+		item.Tags = "anomaly tags"
+		data = append(data, item)
+	}
+
+	if result.Err() != nil {
+		log.Error("query parsing failed", zap.Error(result.Err()))
+		return nil, err
+	}
+	return data, nil
 }
 
 // TODO(shenjun): how to handle the error with async write?

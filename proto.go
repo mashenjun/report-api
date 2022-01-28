@@ -61,6 +61,22 @@ type QueryNodeGraphData struct {
 
 // TODO(shenjun): define fields
 type QueryAnnotationsParam struct {
+	StartTS       int64  `json:"start_ts"`
+	EndTS         int64  `json:"end_ts"`
+	TiDBClusterID string `json:"tidb_cluster_id"`
+}
+
+func (param *QueryAnnotationsParam) Validate() error {
+	if param.StartTS == 0 {
+		return errors.New("start_ts is zero")
+	}
+	if param.EndTS == 0 {
+		return errors.New("end_ts is zero")
+	}
+	if len(param.TiDBClusterID) == 0 {
+		return errors.New("tidb_cluster_id is zero")
+	}
+	return nil
 }
 
 type Annotation struct {
@@ -79,6 +95,17 @@ type QueryAnnotationItem struct {
 	Title      string      `json:"title"`
 	Tags       string      `json:"tags"`
 	Text       string      `json:"text"`
+}
+
+func DefaultAnomalyAnnotation() *Annotation {
+	return &Annotation{
+		Name:       "Anomaly Point",
+		Datasource: "Clinic",
+		IconColor:  "rgba(255, 96, 96, 1)",
+		Enable:     true,
+		ShowLine:   true,
+		Query:      "",
+	}
 }
 
 // TODO(shenjun): define fields
