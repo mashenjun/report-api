@@ -108,12 +108,10 @@ func DefaultAnomalyAnnotation() *Annotation {
 	}
 }
 
-// TODO(shenjun): define fields
 type QueryAnnotationsData = []QueryAnnotationItem
 
 // TODO(shenjun): define fields
 type InsertSampleParam struct {
-	// timestamp in unix
 	Timestamp     int64                  `json:"timestamp"`
 	Measurement   string                 `json:"measurement"`
 	TiDBClusterID string                 `json:"tidb_cluster_id"`
@@ -141,4 +139,11 @@ func (param *InsertSampleParam) GetTags() map[string]string {
 
 // TODO(shenjun): define fields
 type InsertSampleData struct {
+}
+
+type GetMetricsParam struct {
+	Query string `yaml:"query"`
+	Start int64  `yaml:"start"`
+	End   int64  `yaml:"end"`
+	Step  int64  `yaml:"step"`
 }

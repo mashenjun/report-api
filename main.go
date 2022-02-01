@@ -24,18 +24,25 @@ func main() {
 		log.Fatalln(err)
 	}
 
-	api, err := NewReportAPI(cfg.InfluxDB.Endpoint, cfg.InfluxDB.Org, cfg.InfluxDB.Bucket, cfg.InfluxDB.Token)
+	dataAPI, err := NewDataAPI(cfg.VM.Endpoint)
+	if err != nil {
+		log.Fatal(err)
+	}
+	reportAPI, err := NewReportAPI(cfg.InfluxDB.Endpoint, cfg.InfluxDB.Org, cfg.InfluxDB.Bucket, cfg.InfluxDB.Token)
 	if err != nil {
 		log.Fatalln(err)
 	}
-	defer api.Close()
+	defer reportAPI.Close()
 	ep := ReportEndpoint{}
 	// construct  router
 	router := mux.NewRouter()
-	router.HandleFunc("/node_graph", ep.QueryNodeGraph(api)).Methods(http.MethodGet)
-	router.HandleFunc("/annotations", ep.QueryAnnotation(api)).Methods(http.MethodPost)
-	router.HandleFunc("/sample", ep.InsertSample(api)).Methods(http.MethodPost)
-	router.HandleFunc("/flush", ep.Flush(api)).Methods(http.MethodPost)
+	// report api
+	router.HandleFunc("/node_graph", ep.QueryNodeGraph(reportAPI)).Methods(http.MethodGet)
+	router.HandleFunc("/annotations", ep.QueryAnnotation(reportAPI)).Methods(http.MethodPost)
+	router.HandleFunc("/sample", ep.InsertSample(reportAPI)).Methods(http.MethodPost)
+	router.HandleFunc("/flush", ep.Flush(reportAPI)).Methods(http.MethodPost)
+	// data api just forward request to vm
+	router.HandleFunc("/data/metrics", dataAPI.GetMetricsFrowardHandlerFunc()).Methods(http.MethodGet)
 	// construct http server
 	httpServer := &http.Server{
 		Addr:    ":8081",
@@ -51,7 +58,7 @@ func main() {
 	<-ctx.Done()
 	defer stop()
 	// graceful shutdown the http server
-	log.Println("shutting down...")
+	log.Println("shutting down ...")
 	if err := httpServer.Shutdown(ctx); err != nil {
 		log.Fatal(err)
 	}
