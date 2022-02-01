@@ -5,4 +5,5 @@ influxdb:
   bucket: "clinic"
   token: "xxx"
 
-prom:
+vm:
+  endpoint: "http://localhost:8248"

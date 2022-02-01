@@ -8,6 +8,9 @@ import (
 	http2 "github.com/influxdata/influxdb-client-go/v2/api/http"
 	"github.com/pingcap/log"
 	"go.uber.org/zap"
+	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"strconv"
 	"time"
 )
@@ -109,7 +112,6 @@ from(bucket: "%s")
 			return nil, err
 		}
 
-		//name := rd.ValueByKey("name").(string)
 		node := DefaultNode()
 		node.ID = idStr
 		node.Title = idStr
@@ -200,16 +202,6 @@ func (api *ReportAPI) Flush(ctx context.Context) error {
 	return nil
 }
 
-// queryNodeGraph enclose logic for query node graph data from influxDB
-func (api *ReportAPI) queryNodeGraph() (interface{}, error) {
-	panic("TODO")
-}
-
-// queryAnnotations enclose logic for query annotation data form influxDB
-func (api *ReportAPI) queryAnnotations() (interface{}, error) {
-	panic("TODO")
-}
-
 // writeErrorLoop drain all write error for async write
 func (api *ReportAPI) writeErrorLoop() {
 	for {
@@ -229,4 +221,38 @@ func retryCallBack(batch string, err http2.Error, retryAttempts uint) bool {
 	}
 	log.Error("send batch to influxdb failed", zap.Error(err.Err))
 	return false
+}
+
+type DataAPI struct {
+	endpoint string
+	// host does not contain scheme
+	host         string
+	reserveProxy *httputil.ReverseProxy
+}
+
+func NewDataAPI(endpoint string) (*DataAPI, error) {
+	u, err := url.ParseRequestURI(endpoint)
+	if err != nil {
+		return nil, err
+	}
+
+	director := func(req *http.Request) {
+		req.URL.Scheme = "http"
+		req.URL.Host = u.Host
+		req.URL.Path = "/api/v1/query_range"
+	}
+
+	dAPI := &DataAPI{
+		endpoint:     endpoint,
+		host:         u.Host,
+		reserveProxy: &httputil.ReverseProxy{Director: director},
+	}
+
+	return dAPI, nil
+}
+
+func (api *DataAPI) GetMetricsFrowardHandlerFunc() http.HandlerFunc {
+	return func(writer http.ResponseWriter, request *http.Request) {
+		api.reserveProxy.ServeHTTP(writer, request)
+	}
 }

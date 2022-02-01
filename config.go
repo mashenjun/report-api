@@ -13,12 +13,13 @@ type InfluxDBConfig struct {
 	Token    string `yaml:"token"`
 }
 
-type PromConfig struct {
+type VMConfig struct {
+	Endpoint string `yaml:"endpoint"`
 }
 
 type Config struct {
 	InfluxDB *InfluxDBConfig `yaml:"influxdb"`
-	Prom     *PromConfig     `yaml:"prom"`
+	VM       *VMConfig       `yaml:"vm"`
 }
 
 func InitConfig(cfgPath string) (*Config, error) {

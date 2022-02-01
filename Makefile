@@ -22,18 +22,19 @@ CURDIR := $(shell pwd)
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 GOLANGCI_LINT=$(shell pwd)/bin/revive
 # Targets
-.PHONY: server server-linux test
+.PHONY: server server-linux test run
 
-# run starts the server with dev config
-
+# build server with local os and arch
 server: lint
 	$(GOBUILD) -o bin/$(BIN_NAME) .
 
-run: server
-	./bin/$(BIN_NAME)
-
+# build server with os=linux and arch=amd64
 server-linux: lint
 	GOOS=linux GOARCH=amd64 $(GOBUILD) -o bin/linux/report-api .
+
+# run starts the server with dev config
+run: server
+	./bin/$(BIN_NAME) -c config.dev.yaml
 
 test:
 	$(GOTEST) ./...
