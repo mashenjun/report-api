@@ -191,6 +191,7 @@ from(bucket: "%s")
 
 // TODO(shenjun): how to handle the error with async write?
 func (api *ReportAPI) InsertSample(ctx context.Context, param *InsertSampleParam) (*InsertSampleData, error) {
+	log.Info("InsertSample", zap.Any("param", param))
 	ts := time.Unix(param.Timestamp, 0)
 	point := influxdb2.NewPoint(param.Measurement, param.GetTags(), param.Fields, ts)
 	api.writeAPI.WritePoint(point)
@@ -253,6 +254,7 @@ func NewDataAPI(endpoint string) (*DataAPI, error) {
 
 func (api *DataAPI) GetMetricsFrowardHandlerFunc() http.HandlerFunc {
 	return func(writer http.ResponseWriter, request *http.Request) {
+		log.Info("get request", zap.String("url", request.URL.String()))
 		api.reserveProxy.ServeHTTP(writer, request)
 	}
 }
