@@ -62,7 +62,10 @@ func (ep *ReportEndpoint) QueryAnnotation(api *ReportAPI) http.HandlerFunc {
 
 func (ep *ReportEndpoint) InsertSample(api *ReportAPI) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
-		param := &InsertSampleParam{}
+		param := &InsertSampleParam{
+			Fields: make(map[string]interface{}),
+			Tags:   make(map[string]string),
+		}
 		if err := json.NewDecoder(req.Body).Decode(param); err != nil {
 			log.Error("json marshal failed", zap.Error(err))
 			ResponseWithStatus(w, http.StatusBadRequest)
