@@ -38,7 +38,7 @@ func main() {
 	router := mux.NewRouter()
 	// report api
 	router.HandleFunc("/node_graph", ep.QueryNodeGraph(reportAPI)).Methods(http.MethodGet)
-	router.HandleFunc("/annotations", ep.QueryAnnotation(reportAPI)).Methods(http.MethodPost)
+	router.HandleFunc("/annotations", ep.QueryAnnotation(reportAPI)).Methods(http.MethodGet)
 	router.HandleFunc("/sample", ep.InsertSample(reportAPI)).Methods(http.MethodPost)
 	router.HandleFunc("/flush", ep.Flush(reportAPI)).Methods(http.MethodPost)
 	// data api just forward request to vm
