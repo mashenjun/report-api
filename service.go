@@ -77,7 +77,7 @@ from(bucket: "%s")
 	|> filter(fn:(r) => r._measurement =="fast-tune-similarity" and r.tidb_cluster_id == "%v")
 	|> group(columns: ["id"])
 	|> first()
-	|> filter(fn:(r) => r._value >= 0.85)
+	|> filter(fn:(r) => r._value >= 0.5)
 	|> sort(columns: ["id"])
 `
 	fluxQuery := fmt.Sprintf(fluxQueryBase, api.bucket, param.StartTS, param.EndTS, param.TiDBClusterID)
@@ -111,10 +111,15 @@ from(bucket: "%s")
 			log.Error("parse int failed", zap.Error(err))
 			return nil, err
 		}
+		title, ok := rd.ValueByKey("title").(string)
+		if !ok {
+			title = "unknown"
+		}
 
 		node := DefaultNode()
 		node.ID = idStr
 		node.Title = idStr
+		node.SubTitle = title
 		node.MainStat = fmt.Sprintf("%.3f", similarity)
 		node.ArcPositive = similarity
 		node.ArcNegative = 1 - similarity
@@ -122,18 +127,20 @@ from(bucket: "%s")
 		data.Nodes = append(data.Nodes, node)
 		nodesLookup[id] = struct{}{}
 	}
-
+	log.Info("", zap.Any("nodesLookuo", nodesLookup))
 	for _, node := range data.Nodes {
 		id, _ := strconv.ParseInt(node.ID, 0, 64)
-		if targets, ok := EdgeMatrix[id]; ok {
+		if targets, ok := EdgeMatrixV2[id]; ok {
+			log.Info("", zap.Any("targets", targets), zap.Any("id", id))
 			for _, target := range targets {
 				if _, ok := nodesLookup[target]; !ok {
 					continue
 				}
 				edge := DefaultEdge()
-				edge.ID = fmt.Sprintf("%#x", id<<16+target)
+				// edge.ID = fmt.Sprintf("%#x", id<<16+target)
+				edge.ID = fmt.Sprintf("%v%v", id, target)
 				edge.Source = node.ID
-				edge.Target = fmt.Sprintf("%#x", target)
+				edge.Target = fmt.Sprintf("%v", target)
 				data.Edges = append(data.Edges, edge)
 			}
 		}
@@ -172,10 +179,13 @@ from(bucket: "%s")
 			Text:       "",
 		}
 		rd := result.Record()
-		item.Time = rd.Time().Unix()
-		endTime := rd.ValueByKey("end_time")
-		if endTs, ok := endTime.(int64); ok {
-			item.TimeEnd = endTs
+		// Time should be milliseconds
+		item.Time = rd.Time().UnixNano() / 1e6
+		log.Info("", zap.Any("values", rd.Values()))
+		if rd.Field() == "end_time" {
+			if endTs, ok := rd.Value().(float64); ok {
+				item.TimeEnd = int64(endTs) * 1e3
+			}
 		}
 		item.Title = "anomaly title"
 		item.Tags = "anomaly tags"
