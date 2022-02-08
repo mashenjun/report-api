@@ -2,9 +2,9 @@
 a demo report api
 
 ## TODO
-- [ ] Integrate InfluxDB
+- [x] Integrate InfluxDB
 - [x] Init Http Server and Listener
-- [ ] Read API
-- [ ] Write API
-- [ ] Process Metrics to Node graph struct
-- [ ] Config for Fast Tune Tree
+- [x] Read API
+- [x] Write API
+- [x]  Process Metrics to Node graph struct
+- [x] Config for Fast Tune Tree
