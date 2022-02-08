@@ -155,9 +155,12 @@ func (api *ReportAPI) QueryAnnotations(ctx context.Context, param *QueryAnnotati
 	fluxQueryBase := `
 from(bucket: "%s")
 	|> range(start: %v, stop: %v)
-	|> filter(fn:(r) => r._measurement =="fast-tune-anomaly" and r.tidb_cluster_id == "%v")
+	|> filter(fn:(r) => r._measurement =="%s" and r.tidb_cluster_id =="%v")
 `
-	fluxQuery := fmt.Sprintf(fluxQueryBase, api.bucket, param.StartTS, param.EndTS, param.TiDBClusterID)
+	if len(param.Measurement) == 0 {
+		param.Measurement = "fast-tune-anomaly"
+	}
+	fluxQuery := fmt.Sprintf(fluxQueryBase, api.bucket, param.StartTS, param.EndTS, param.Measurement, param.TiDBClusterID)
 
 	result, err := api.queryAPI.Query(ctx, fluxQuery)
 	if err != nil {
@@ -170,11 +173,9 @@ from(bucket: "%s")
 	for result.Next() {
 		item := QueryAnnotationItem{
 			Annotation: DefaultAnomalyAnnotation(),
-			Time:       0,
-			TimeEnd:    0,
-			Title:      "",
-			Tags:       "",
-			Text:       "",
+			Title:      "anomaly title",
+			Tags:       "anomaly tags",
+			Text:       "anomaly text",
 		}
 		rd := result.Record()
 		// Time should be milliseconds
@@ -187,8 +188,15 @@ from(bucket: "%s")
 		if panelID, ok := rd.ValueByKey("panel_id").(string); ok {
 			item.PanelID, _ = strconv.ParseInt(panelID, 0, 64)
 		}
-		item.Title = "anomaly title"
-		item.Tags = "anomaly tags"
+		if title, ok := rd.ValueByKey("title").(string); ok {
+			item.Title = title
+		}
+		if tags, ok := rd.ValueByKey("tags").(string); ok {
+			item.Tags = tags
+		}
+		if text, ok := rd.ValueByKey("text").(string); ok {
+			item.Text = text
+		}
 		data = append(data, item)
 	}
 

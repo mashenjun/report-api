@@ -2,7 +2,6 @@ package main
 
 import "errors"
 
-// TODO(shenjun): define fields
 type QueryNodeGraphParam struct {
 	StartTS       int64  `json:"start_ts"`
 	EndTS         int64  `json:"end_ts"`
@@ -59,11 +58,11 @@ type QueryNodeGraphData struct {
 	Edges []*Edge `json:"edges"`
 }
 
-// TODO(shenjun): define fields
 type QueryAnnotationsParam struct {
 	StartTS       int64  `json:"start_ts"`
 	EndTS         int64  `json:"end_ts"`
 	TiDBClusterID string `json:"tidb_cluster_id"`
+	Measurement   string `json:"measurement"`
 }
 
 func (param *QueryAnnotationsParam) Validate() error {
