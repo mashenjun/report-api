@@ -81,7 +81,7 @@ from(bucket: "%s")
 	|> sort(columns: ["id"])
 `
 	fluxQuery := fmt.Sprintf(fluxQueryBase, api.bucket, param.StartTS, param.EndTS, param.TiDBClusterID)
-	fmt.Println(fluxQuery)
+	// fmt.Println(fluxQuery)
 	result, err := api.queryAPI.Query(ctx, fluxQuery)
 	if err != nil {
 		log.Error("query influxdb failed", zap.Error(err))
@@ -101,7 +101,6 @@ from(bucket: "%s")
 		if !ok {
 			continue
 		}
-
 		idStr, ok := rd.ValueByKey("id").(string)
 		if !ok {
 			continue
@@ -115,7 +114,6 @@ from(bucket: "%s")
 		if !ok {
 			title = "unknown"
 		}
-
 		node := DefaultNode()
 		node.ID = idStr
 		node.Title = idStr
@@ -127,11 +125,11 @@ from(bucket: "%s")
 		data.Nodes = append(data.Nodes, node)
 		nodesLookup[id] = struct{}{}
 	}
-	log.Info("", zap.Any("nodesLookuo", nodesLookup))
+	// log.Info("", zap.Any("nodesLookuo", nodesLookup))
 	for _, node := range data.Nodes {
 		id, _ := strconv.ParseInt(node.ID, 0, 64)
 		if targets, ok := EdgeMatrixV2[id]; ok {
-			log.Info("", zap.Any("targets", targets), zap.Any("id", id))
+			// log.Info("", zap.Any("targets", targets), zap.Any("id", id))
 			for _, target := range targets {
 				if _, ok := nodesLookup[target]; !ok {
 					continue
@@ -181,11 +179,13 @@ from(bucket: "%s")
 		rd := result.Record()
 		// Time should be milliseconds
 		item.Time = rd.Time().UnixNano() / 1e6
-		log.Info("", zap.Any("values", rd.Values()))
 		if rd.Field() == "end_time" {
 			if endTs, ok := rd.Value().(float64); ok {
 				item.TimeEnd = int64(endTs) * 1e3
 			}
+		}
+		if panelID, ok := rd.ValueByKey("panel_id").(string); ok {
+			item.PanelID, _ = strconv.ParseInt(panelID, 0, 64)
 		}
 		item.Title = "anomaly title"
 		item.Tags = "anomaly tags"
