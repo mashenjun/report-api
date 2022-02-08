@@ -95,6 +95,7 @@ type QueryAnnotationItem struct {
 	Title      string      `json:"title"`
 	Tags       string      `json:"tags"`
 	Text       string      `json:"text"`
+	PanelID    int64       `json:"panelId"`
 }
 
 func DefaultAnomalyAnnotation() *Annotation {
