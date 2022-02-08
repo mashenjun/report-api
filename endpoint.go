@@ -44,7 +44,6 @@ func (ep *ReportEndpoint) QueryNodeGraph(api *ReportAPI) http.HandlerFunc {
 
 func (ep *ReportEndpoint) QueryAnnotation(api *ReportAPI) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
-		// TODO(shenjun): define struct
 		param := &QueryAnnotationsParam{}
 		param.TiDBClusterID = req.URL.Query().Get("tidb_cluster_id")
 		param.StartTS, _ = strconv.ParseInt(req.URL.Query().Get("start_ts"), 10, 64)
