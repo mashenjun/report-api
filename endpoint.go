@@ -48,6 +48,7 @@ func (ep *ReportEndpoint) QueryAnnotation(api *ReportAPI) http.HandlerFunc {
 		param.TiDBClusterID = req.URL.Query().Get("tidb_cluster_id")
 		param.StartTS, _ = strconv.ParseInt(req.URL.Query().Get("start_ts"), 10, 64)
 		param.EndTS, _ = strconv.ParseInt(req.URL.Query().Get("end_ts"), 10, 64)
+		param.Measurement = req.URL.Query().Get("measurement")
 		log.Info("QueryAnnotation", zap.Any("param", param))
 		data, err := api.QueryAnnotations(req.Context(), param)
 		if err != nil {
