@@ -22,27 +22,35 @@ var EdgeMatrix = map[int64][]int64{
 }
 
 var EdgeMatrixV2 = map[int64][]int64{
-	// Write to slow -> check wirte stall
-	8637: {9875},
-	// check wirte stall -> check RocksDB compaction flow
-	9875: {8945, 8946, 11281},
-	// Check RocksDB compaction flow -> Check RocksDB write latentcy
+	// Write too slow -> Some instances write too slow (11271)
+	8637: {11271},
+	// Some instances write too slow -> Check wirte stall (9875)
+	11271: {9875},
+	// Check wirte stall -> Check Total compaction flow (9100)
+	9875: {9100},
+	// Check Total compaction flow -> Check RocksDB compaction flow (8945, 8946, 9876, 11281, 11282)
+	9100: {8945, 8946, 9876, 11281, 11282},
+	// Check RocksDB compaction flow -> Check RocksDB write latentcy (10486, 11258)
 	8945:  {10486, 11258},
 	8946:  {10486, 11258},
+	9876:  {10486, 11258},
 	11281: {10486, 11258},
-	// Check RocksDB write latentcy -> Check RocksDB WAL latentcy
-	// Check RocksDB write latentcy -> Check the Disk Write latency skip
-	// Check the Disk Write latency -> Check write batch size
-	// Check RocksDB write latentcy -> Check the RocksDB CPU usage
-	// Check RocksDB write latentcy -> Check the Frontend flow
-	10486: {9102, 11285, 11261, 11262, 11270, 9099, 9101},
-	11258: {9102, 11285, 11261, 11262, 11270, 9099, 9101},
+	11282: {10486, 11258},
+	// Check RocksDB write latentcy -> Check RocksDB WAL latentcy (9102, 11285)
+	// Check RocksDB write latentcy -> Check the Disk Write latency (8025)
+	10486: {9102, 11285, 8025},
+	11258: {9102, 11285, 8025},
+	// Check the Disk Write latency -> Check write batch size (11261, 11262)
+	// Check the Disk Write latency -> Check the RocksDB CPU usage (11270)
+	// Check the Disk Write latency -> Check the Frontend flow (9099, 9101)
+	8025: {11261, 11262, 11270, 9099, 9101},
 	//  Check RocksDB WAL latentcy -> Check out Async Write
 	9102:  {11284},
 	11285: {11284},
-	// Check out Async Write -> Check out RaftStore Threads
+	// Check out Async Write -> Check out RaftStore Threads (9407, 9408)
 	// Check out Async Write -> Check out latch
-	11284: {9407, 11008},
+	11284: {9407, 9408, 11008},
+	// Check out RaftStore Threads -> Check out Wait for RaftStore Threads (9407, 9408) not defined in ppt
 	// Check out latch -> Check out Scheduler Threads
 	11008: {9255, 8947},
 	// Check out Scheduler Threads -> Check Perf Context Mutex
@@ -56,24 +64,31 @@ var EdgeMatrixV2 = map[int64][]int64{
 	11261: {11263, 9571},
 	11262: {11263, 9571},
 
-	// Read too slow -> Get too slow
-	// Read too slow -> Coprocessor too slow
-	9254: {10638, 11260},
-	// Coprocessor too slow -> Check coprocessor threads
-	11260: {9563, 10790},
+	// Read too slow -> Some instances read too slow (11272)
+	9254: {11272},
+	// Some instances read too slow -> Get too slow (11278)
+	// Some instances read too slow -> Coprocessor too slow (11260)
+	11272: {11278, 11260},
+	// Coprocessor too slow -> Coprocessor handle too slow (10334)
+	// Coprocessor too slow -> Coprocessor-RPC QPS Follow Write-RPC? (11279)
+	11260: {10334, 11279},
+	// Coprocessor handle too slow -> Check coprocessor threads
+	10334: {9563, 10790},
 	// Check coprocessor threads -> Check scanned data count
 	9563:  {9561},
 	10790: {9561},
-	// Get too slow -> Check scanned data count
-	10638: {9561},
+	// Get too slow -> Check scanned data count (9561)
+	// Get too slow -> BatchGet-RPC & Get-RPC QPS Follow Write-RPC? (10638)
+	11278: {9561, 10638},
 	// Check scanned data count -> Check RPC count
 	// Check scanned data count -> Check scanned Rocksed tombstone count
 	9561: {10942, 10182},
-	// Check scanned Rocksed tombstone count -> Check KVDB Seek and Get latency
-	10182: {9567, 10030},
+	// Check scanned Rocksed tombstone count -> Check KVDB Seek and Get latency (9567, 9568, 10030)
+	10182: {9567, 9568, 10030},
 	// Check KVDB Seek and Get latency -> Check in-lease-read rate
 	// Check KVDB Seek and Get latency -> Check memtable hit count and block-cache hit rate
 	9567:  {11259, 11287, 9570},
+	9568:  {11259, 11287, 9570},
 	10030: {11259, 11287, 9570},
 	// Check in-lease-read rate -> Check async-snap
 	11259: {11286},

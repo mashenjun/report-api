@@ -28,7 +28,9 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	reportAPI, err := NewReportAPI(cfg.InfluxDB.Endpoint, cfg.InfluxDB.Org, cfg.InfluxDB.Bucket, cfg.InfluxDB.Token)
+	reportAPI, err := NewReportAPI(
+		cfg.InfluxDB.Endpoint, cfg.InfluxDB.Org, cfg.InfluxDB.Bucket, cfg.InfluxDB.Token,
+		WithVMOption(cfg.VM.Endpoint))
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -38,8 +40,11 @@ func main() {
 	router := mux.NewRouter()
 	// report api
 	router.HandleFunc("/node_graph", ep.QueryNodeGraph(reportAPI)).Methods(http.MethodGet)
+	router.HandleFunc("/node_graph/v2", ep.QueryNodeGraphV2(reportAPI)).Methods(http.MethodGet)
 	router.HandleFunc("/annotations", ep.QueryAnnotation(reportAPI)).Methods(http.MethodGet)
+	router.HandleFunc("/annotations/v2", ep.QueryAnnotationV2(reportAPI)).Methods(http.MethodGet)
 	router.HandleFunc("/sample", ep.InsertSample(reportAPI)).Methods(http.MethodPost)
+	router.HandleFunc("/sample/v2", ep.InsertSampleV2(reportAPI)).Methods(http.MethodPost)
 	router.HandleFunc("/flush", ep.Flush(reportAPI)).Methods(http.MethodPost)
 	// data api just forward request to vm
 	router.HandleFunc("/data/metrics", dataAPI.GetMetricsFrowardHandlerFunc()).Methods(http.MethodGet)
