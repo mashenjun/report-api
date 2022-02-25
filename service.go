@@ -230,6 +230,53 @@ from(bucket: "%s")
 	return data, nil
 }
 
+func (api *ReportAPI) QueryDynamicTextValue(ctx context.Context, param *QueryDynamicTextValueParam) (QueryDynamicTextValueData, error) {
+	fluxQueryBase := `
+from(bucket: "%s")
+	|> range(start: %v, stop: %v)
+	|> filter(fn:(r) => r._measurement =="%s" and r.tidb_cluster_id == "%v")
+	|> group(columns: ["_field"])
+	|> first()
+`
+	if len(param.Measurement) == 0 {
+		param.Measurement = "diagnosis_overview"
+	}
+	fluxQuery := fmt.Sprintf(fluxQueryBase, api.bucket, param.StartTS, param.EndTS, param.Measurement, param.TiDBClusterID)
+
+	result, err := api.queryAPI.Query(ctx, fluxQuery)
+	if err != nil {
+		log.Error("query influxdb failed", zap.Error(err))
+		return nil, err
+	}
+	defer result.Close()
+
+	data := make(QueryDynamicTextValueData)
+	for result.Next() {
+		rd := result.Record()
+		value, ok := rd.Value().(float64)
+		if !ok {
+			continue
+		}
+		switch rd.ValueByKey("format") {
+		case "float":
+			data[rd.Field()] = value
+		case "int":
+			data[rd.Field()] = int64(value)
+		case "unix_seconds":
+			data[rd.Field()] = int64(value)
+			data[fmt.Sprintf("%s_rfc3339", rd.Field())] = time.Unix(int64(value), 0).Format(time.RFC3339)
+		default:
+			data[rd.Field()] = value
+		}
+	}
+
+	if result.Err() != nil {
+		log.Error("query parsing failed", zap.Error(result.Err()))
+		return nil, err
+	}
+	return data, nil
+}
+
 // use `/api/v1/query` to get raw sample
 func (api *ReportAPI) queryMetrics(ctx context.Context, queryExpr string, ts int64) (model.Value, error) {
 	u := fmt.Sprintf("%s%s", api.vmEndpoint, "/api/v1/query")
@@ -363,6 +410,43 @@ func (api *ReportAPI) QueryAnnotationsV2(ctx context.Context, param *QueryAnnota
 		}
 	}
 	log.Info("QueryAnnotationsV2", zap.Int("len", len(data)))
+
+	return data, nil
+}
+
+func (api *ReportAPI) QueryDynamicTextValueV2(ctx context.Context, param *QueryDynamicTextValueParam) (QueryDynamicTextValueData, error) {
+	ts, interval := param.GetRollUpParam()
+	queryExpr := fmt.Sprintf(`first_over_time({__name__=~"%s.*",tidb_cluster_id="%s"}[%s])`, param.Measurement, param.TiDBClusterID, interval)
+	v, err := api.queryMetrics(ctx, queryExpr, ts)
+	if err != nil {
+		return nil, err
+	}
+	vector, ok := v.(model.Vector)
+	if !ok {
+		log.Error("convert to vector failed", zap.Any("value", v))
+		return nil, fmt.Errorf("")
+	}
+	data := make(QueryDynamicTextValueData)
+	if len(vector) == 0 {
+		return data, nil
+	}
+	for _, sample := range vector {
+		value := float64(sample.Value)
+		metricsName := string(sample.Metric["__name__"])
+		key := strings.TrimPrefix(metricsName, param.Measurement)
+		data[key] = value
+		switch sample.Metric["format"] {
+		case "float":
+			data[key] = value
+		case "int":
+			data[key] = int64(value)
+		case "unix_seconds":
+			data[key] = int64(value)
+			data[fmt.Sprintf("%s_rfc3339", key)] = time.Unix(int64(value), 0).Format(time.RFC3339)
+		default:
+			data[key] = value
+		}
+	}
 
 	return data, nil
 }

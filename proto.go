@@ -10,8 +10,6 @@ import (
 
 type QueryNodeGraphParam struct {
 	TsRange
-	// StartTS       int64  `json:"start_ts"`
-	// EndTS         int64  `json:"end_ts"`
 	TiDBClusterID string `json:"tidb_cluster_id"`
 }
 
@@ -82,8 +80,6 @@ func (tr *TsRange) GetRollUpParam() (int64, string) {
 
 type QueryAnnotationsParam struct {
 	TsRange
-	// StartTS       int64  `json:"start_ts"`
-	// EndTS         int64  `json:"end_ts"`
 	TiDBClusterID string `json:"tidb_cluster_id"`
 	Measurement   string `json:"measurement"`
 }
@@ -139,10 +135,31 @@ func DefaultAnomalyAnnotation() *Annotation {
 
 type QueryAnnotationsData = []QueryAnnotationItem
 
-// TODO(shenjun): define fields
+type QueryDynamicTextValueParam struct {
+	TsRange
+	TiDBClusterID string `json:"tidb_cluster_id"`
+	Measurement   string `json:"measurement"`
+}
+
+func (param *QueryDynamicTextValueParam) Validate() error {
+	if param.StartTS == 0 {
+		return errors.New("start_ts is zero")
+	}
+	if param.EndTS == 0 {
+		return errors.New("end_ts is zero")
+	}
+	if len(param.TiDBClusterID) == 0 {
+		return errors.New("tidb_cluster_id is zero")
+	}
+	return nil
+}
+
+type QueryDynamicTextValueData map[string]interface{}
+
 type InsertSampleParam struct {
-	Timestamp     int64                  `json:"timestamp"`
-	Measurement   string                 `json:"measurement"`
+	Timestamp   int64  `json:"timestamp"`
+	Measurement string `json:"measurement"`
+	// TODO(shenjun): change to TiDBCluster
 	TiDBClusterID string                 `json:"tidb_cluster_id"`
 	Fields        map[string]interface{} `json:"fields"`
 	Tags          map[string]string      `json:"tags"`
@@ -169,15 +186,7 @@ func (param *InsertSampleParam) GetTags() map[string]string {
 // TODO(shenjun): define fields
 type InsertSampleData struct{}
 
-// type GetMetricsParam struct {
-// 	Query string `yaml:"query"`
-// 	Start int64  `yaml:"start"`
-// 	End   int64  `yaml:"end"`
-// 	Step  int64  `yaml:"step"`
-// }
-
 // copy from prometheus client golang.
-
 type MetricsResp struct {
 	Status string              `json:"status"`
 	Data   *MetricsQueryResult `json:"data"`

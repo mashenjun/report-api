@@ -32,13 +32,14 @@ func (ep *ReportEndpoint) QueryNodeGraph(api *ReportAPI) http.HandlerFunc {
 			ResponseWithStatus(w, http.StatusBadRequest)
 			return
 		}
-		bs, err := json.Marshal(data)
-		if err != nil {
-			log.Error("json marshal failed", zap.Error(err))
-			ResponseWithStatus(w, http.StatusBadRequest)
-			return
-		}
-		_, _ = w.Write(bs)
+		ResponseWithJSON(w, data)
+		// bs, err := json.Marshal(data)
+		// if err != nil {
+		// 	log.Error("json marshal failed", zap.Error(err))
+		// 	ResponseWithStatus(w, http.StatusBadRequest)
+		// 	return
+		// }
+		// _, _ = w.Write(bs)
 	}
 }
 
@@ -48,7 +49,6 @@ func (ep *ReportEndpoint) QueryNodeGraphV2(api *ReportAPI) http.HandlerFunc {
 		param.TiDBClusterID = req.URL.Query().Get("tidb_cluster_id")
 		param.StartTS, _ = strconv.ParseInt(req.URL.Query().Get("start_ts"), 10, 64)
 		param.EndTS, _ = strconv.ParseInt(req.URL.Query().Get("end_ts"), 10, 64)
-
 		if err := param.Validate(); err != nil {
 			log.Error("param validate failed", zap.Error(err))
 			ResponseWithStatus(w, http.StatusBadRequest)
@@ -62,13 +62,14 @@ func (ep *ReportEndpoint) QueryNodeGraphV2(api *ReportAPI) http.HandlerFunc {
 			ResponseWithStatus(w, http.StatusBadRequest)
 			return
 		}
-		bs, err := json.Marshal(data)
-		if err != nil {
-			log.Error("json marshal failed", zap.Error(err))
-			ResponseWithStatus(w, http.StatusBadRequest)
-			return
-		}
-		_, _ = w.Write(bs)
+		ResponseWithJSON(w, data)
+		// bs, err := json.Marshal(data)
+		// if err != nil {
+		// 	log.Error("json marshal failed", zap.Error(err))
+		// 	ResponseWithStatus(w, http.StatusBadRequest)
+		// 	return
+		// }
+		// _, _ = w.Write(bs)
 	}
 }
 
@@ -79,6 +80,12 @@ func (ep *ReportEndpoint) QueryAnnotation(api *ReportAPI) http.HandlerFunc {
 		param.StartTS, _ = strconv.ParseInt(req.URL.Query().Get("start_ts"), 10, 64)
 		param.EndTS, _ = strconv.ParseInt(req.URL.Query().Get("end_ts"), 10, 64)
 		param.Measurement = req.URL.Query().Get("measurement")
+
+		if err := param.Validate(); err != nil {
+			log.Error("param validate failed", zap.Error(err))
+			ResponseWithStatus(w, http.StatusBadRequest)
+			return
+		}
 		// log.Info("QueryAnnotation", zap.Any("param", param))
 		data, err := api.QueryAnnotations(req.Context(), param)
 		if err != nil {
@@ -97,10 +104,63 @@ func (ep *ReportEndpoint) QueryAnnotationV2(api *ReportAPI) http.HandlerFunc {
 		param.StartTS, _ = strconv.ParseInt(req.URL.Query().Get("start_ts"), 10, 64)
 		param.EndTS, _ = strconv.ParseInt(req.URL.Query().Get("end_ts"), 10, 64)
 		param.Measurement = req.URL.Query().Get("measurement")
-		log.Info("QueryAnnotationV2", zap.Any("param", param))
+		if err := param.Validate(); err != nil {
+			log.Error("param validate failed", zap.Error(err))
+			ResponseWithStatus(w, http.StatusBadRequest)
+			return
+		}
+		// log.Info("QueryAnnotationV2", zap.Any("param", param))
 		data, err := api.QueryAnnotationsV2(req.Context(), param)
 		if err != nil {
 			log.Error("query annotations failed", zap.Error(err))
+			ResponseWithStatus(w, http.StatusInternalServerError)
+			return
+		}
+		ResponseWithJSON(w, data)
+	}
+}
+
+func (ep *ReportEndpoint) QueryDynamicTextValue(api *ReportAPI) http.HandlerFunc {
+	return func(w http.ResponseWriter, req *http.Request) {
+		param := &QueryDynamicTextValueParam{}
+		param.TiDBClusterID = req.URL.Query().Get("tidb_cluster_id")
+		param.StartTS, _ = strconv.ParseInt(req.URL.Query().Get("start_ts"), 10, 64)
+		param.EndTS, _ = strconv.ParseInt(req.URL.Query().Get("end_ts"), 10, 64)
+		param.Measurement = req.URL.Query().Get("measurement")
+
+		if err := param.Validate(); err != nil {
+			log.Error("param validate failed", zap.Error(err))
+			ResponseWithStatus(w, http.StatusBadRequest)
+			return
+		}
+		log.Info("QueryDynamicTextValue", zap.Any("param", param))
+		data, err := api.QueryDynamicTextValue(req.Context(), param)
+		if err != nil {
+			log.Error("query dynamic text value failed", zap.Error(err))
+			ResponseWithStatus(w, http.StatusInternalServerError)
+			return
+		}
+		ResponseWithJSON(w, data)
+	}
+}
+
+func (ep *ReportEndpoint) QueryDynamicTextValueV2(api *ReportAPI) http.HandlerFunc {
+	return func(w http.ResponseWriter, req *http.Request) {
+		param := &QueryDynamicTextValueParam{}
+		param.TiDBClusterID = req.URL.Query().Get("tidb_cluster_id")
+		param.StartTS, _ = strconv.ParseInt(req.URL.Query().Get("start_ts"), 10, 64)
+		param.EndTS, _ = strconv.ParseInt(req.URL.Query().Get("end_ts"), 10, 64)
+		param.Measurement = req.URL.Query().Get("measurement")
+
+		if err := param.Validate(); err != nil {
+			log.Error("param validate failed", zap.Error(err))
+			ResponseWithStatus(w, http.StatusBadRequest)
+			return
+		}
+		log.Info("QueryDynamicTextValueV2", zap.Any("param", param))
+		data, err := api.QueryDynamicTextValueV2(req.Context(), param)
+		if err != nil {
+			log.Error("query dynamic text value v2 failed", zap.Error(err))
 			ResponseWithStatus(w, http.StatusInternalServerError)
 			return
 		}
