@@ -1,23 +1,34 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
-	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
-	"github.com/influxdata/influxdb-client-go/v2/api"
-	http2 "github.com/influxdata/influxdb-client-go/v2/api/http"
-	"github.com/pingcap/log"
-	"go.uber.org/zap"
+	"io"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
+
+	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
+	"github.com/influxdata/influxdb-client-go/v2/api"
+	http2 "github.com/influxdata/influxdb-client-go/v2/api/http"
+	"github.com/influxdata/influxdb-client-go/v2/api/write"
+	lp "github.com/influxdata/line-protocol"
+	"github.com/pingcap/log"
+	"github.com/prometheus/common/model"
+	"go.uber.org/zap"
 )
 
 type ReportAPIOption func(reportAPI *ReportAPI) error
 
 type ReportAPI struct {
+	// vmEndpoint has following format <scheme>://host:[port]
+	vmEndpoint string
+
 	bucket string
 	org    string
 
@@ -26,11 +37,19 @@ type ReportAPI struct {
 	queryAPI   api.QueryAPI
 	writeErrCh <-chan error
 
+	httpCli http.Client
+
 	// internal variable
 	done chan struct{}
 }
 
-func NewReportAPI(endpoint string, org string, bucket string, token string, opts ...ReportAPIOption) (*ReportAPI, error) {
+func WithVMOption(endpoint string) ReportAPIOption {
+	return func(reportAPI *ReportAPI) error {
+		reportAPI.vmEndpoint = endpoint
+		return nil
+	}
+}
+func NewReportAPI(influxdbEp string, org string, bucket string, token string, opts ...ReportAPIOption) (*ReportAPI, error) {
 	//influxdbURL := "http://localhost:8086"
 	//tk := "lF9VJ9pvM3xU4piExllnV800kHwGg9ie-08fTnlcZl9EcYllFMo9urMGTQ71AI3UKTJTn5D6LiRmCvDLAG9BPQ=="
 	//org := "my-org"
@@ -48,11 +67,15 @@ func NewReportAPI(endpoint string, org string, bucket string, token string, opts
 		}
 	}
 
-	rAPI.influxCli = influxdb2.NewClient(endpoint, token)
+	rAPI.influxCli = influxdb2.NewClient(influxdbEp, token)
 	rAPI.writeAPI = rAPI.influxCli.WriteAPI(org, bucket)
 	rAPI.writeAPI.SetWriteFailedCallback(retryCallBack)
 	rAPI.writeErrCh = rAPI.writeAPI.Errors()
 	rAPI.queryAPI = rAPI.influxCli.QueryAPI(org)
+	// TODO(shenjun): use cutomized transport later
+	rAPI.httpCli = http.Client{
+		Transport: http.DefaultTransport,
+	}
 
 	go rAPI.writeErrorLoop()
 
@@ -158,7 +181,7 @@ from(bucket: "%s")
 	|> filter(fn:(r) => r._measurement =="%s" and r.tidb_cluster_id =="%v")
 `
 	if len(param.Measurement) == 0 {
-		param.Measurement = "fast-tune-anomaly"
+		param.Measurement = "fast_tune_anomaly"
 	}
 	fluxQuery := fmt.Sprintf(fluxQueryBase, api.bucket, param.StartTS, param.EndTS, param.Measurement, param.TiDBClusterID)
 
@@ -207,12 +230,179 @@ from(bucket: "%s")
 	return data, nil
 }
 
+// use `/api/v1/query` to get raw sample
+func (api *ReportAPI) queryMetrics(ctx context.Context, queryExpr string, ts int64) (model.Value, error) {
+	u := fmt.Sprintf("%s%s", api.vmEndpoint, "/api/v1/query")
+	payload := url.Values{
+		"query": {queryExpr},
+		"time":  {strconv.FormatInt(ts, 10)},
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, strings.NewReader(payload.Encode()))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := api.httpCli.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+	}()
+	if resp.StatusCode != http.StatusOK {
+		return nil, err
+	}
+
+	mResp := MetricsResp{}
+	if err := json.NewDecoder(resp.Body).Decode(&mResp); err != nil {
+		return nil, err
+	}
+	// matrix, ok := mResp.Data.v.(model.Matrix)
+	// if !ok {
+	// 	return nil, fmt.Errorf("type %T not support", mResp.Data.v)
+	// }
+	return mResp.Data.v, nil
+}
+
+func (api *ReportAPI) QueryNodeGraphV2(ctx context.Context, param *QueryNodeGraphParam) (*QueryNodeGraphData, error) {
+	ts, interval := param.GetRollUpParam()
+	queryExpr := fmt.Sprintf(`first_over_time({__name__=~"fast_tune_similarity.*",tidb_cluster_id="%s"}[%s])`, param.TiDBClusterID, interval)
+	v, err := api.queryMetrics(ctx, queryExpr, ts)
+	if err != nil {
+		return nil, err
+	}
+	vector, ok := v.(model.Vector)
+	if !ok {
+		log.Error("convert to vector failed", zap.Any("value", v))
+		return nil, fmt.Errorf("")
+	}
+	log.Info("QueryNodeGraphV2", zap.Int("len", len(vector)))
+	data := QueryNodeGraphData{
+		Nodes: make([]*Node, 0),
+		Edges: make([]*Edge, 0),
+	}
+
+	nodesLookup := make(map[int64]struct{})
+	if len(vector) == 0 {
+		return &data, nil
+	}
+	for _, sample := range vector {
+		similarity := float64(sample.Value)
+		idStr := string(sample.Metric["id"])
+		id, err := strconv.ParseInt(idStr, 0, 64)
+		if err != nil {
+			log.Warn("parse int fail skip the node", zap.String("id", idStr), zap.Error(err))
+			continue
+		}
+		node := DefaultNode()
+
+		node.ID = idStr
+		node.Title = idStr
+		node.SubTitle = string(sample.Metric["title"])
+		node.MainStat = fmt.Sprintf("%.3f", similarity)
+		node.ArcPositive = similarity
+		node.ArcNegative = 1 - similarity
+
+		data.Nodes = append(data.Nodes, node)
+		nodesLookup[id] = struct{}{}
+	}
+	for _, node := range data.Nodes {
+		id, _ := strconv.ParseInt(node.ID, 0, 64)
+		if targets, ok := EdgeMatrixV2[id]; ok {
+			for _, target := range targets {
+				if _, ok := nodesLookup[target]; !ok {
+					continue
+				}
+				edge := DefaultEdge()
+				edge.ID = fmt.Sprintf("%v%v", id, target)
+				edge.Source = node.ID
+				edge.Target = fmt.Sprintf("%v", target)
+				data.Edges = append(data.Edges, edge)
+			}
+		}
+	}
+
+	return &data, nil
+}
+
+func (api *ReportAPI) QueryAnnotationsV2(ctx context.Context, param *QueryAnnotationsParam) (QueryAnnotationsData, error) {
+	if len(param.Measurement) == 0 {
+		param.Measurement = "fast_tune_anomaly"
+	}
+	ts, interval := param.GetRollUpParam()
+	queryExpr := fmt.Sprintf(`{__name__=~"%s.*",tidb_cluster_id="%s"}[%s]`, param.Measurement, param.TiDBClusterID, interval)
+	v, err := api.queryMetrics(ctx, queryExpr, ts)
+	if err != nil {
+		return nil, err
+	}
+	matrix, ok := v.(model.Matrix)
+	if !ok {
+		log.Error("convert to matrix failed", zap.Any("value", v))
+		return nil, fmt.Errorf("")
+	}
+	data := make(QueryAnnotationsData, 0)
+	for _, sample := range matrix {
+		for _, pair := range sample.Values {
+			item := QueryAnnotationItem{
+				Annotation: DefaultAnomalyAnnotation(),
+				Title:      "anomaly title",
+				Tags:       "anomaly tags",
+				Text:       "anomaly text",
+			}
+			if panelID, ok := sample.Metric["panel_id"]; ok {
+				item.PanelID, _ = strconv.ParseInt(string(panelID), 0, 64)
+			}
+			item.Title = string(sample.Metric["title"])
+			item.Tags = string(sample.Metric["tags"])
+			item.Text = string(sample.Metric["text"])
+			item.Time = pair.Timestamp.UnixNano() / 1e6
+			item.TimeEnd = int64(pair.Value) * 1e3
+			data = append(data, item)
+		}
+	}
+	log.Info("QueryAnnotationsV2", zap.Int("len", len(data)))
+
+	return data, nil
+}
+
 // TODO(shenjun): how to handle the error with async write?
+// InsertSample insert time series data in to influxdb
 func (api *ReportAPI) InsertSample(ctx context.Context, param *InsertSampleParam) (*InsertSampleData, error) {
 	log.Info("InsertSample", zap.Any("param", param))
 	ts := time.Unix(param.Timestamp, 0)
 	point := influxdb2.NewPoint(param.Measurement, param.GetTags(), param.Fields, ts)
 	api.writeAPI.WritePoint(point)
+	return &InsertSampleData{}, nil
+}
+
+// InsertSampleV2 insert time series data in to victoria metrics no need to call flush
+// the metrics will be saved as <measurement>_<field_name> and value will be <field_value>
+func (api *ReportAPI) InsertSampleV2(ctx context.Context, param *InsertSampleParam) (*InsertSampleData, error) {
+	ts := time.Unix(param.Timestamp, 0)
+	point := influxdb2.NewPoint(param.Measurement, param.GetTags(), param.Fields, ts)
+	payload, err := encodePoints(point)
+	if err != nil {
+		return nil, err
+	}
+	log.Info("InsertSampleV2", zap.String("payload", payload))
+	u := fmt.Sprintf("%s%s", api.vmEndpoint, "/influx/api/v2/write")
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, strings.NewReader(payload))
+	if err != nil {
+		log.Error("new request failed", zap.Error(err))
+		return nil, err
+	}
+	resp, err := api.httpCli.Do(req)
+	if err != nil {
+		log.Error("do request failed", zap.Error(err))
+		return nil, err
+	}
+	if resp.StatusCode/100 != 2 {
+		log.Error("response is not ok", zap.String("status", resp.Status))
+		return nil, fmt.Errorf("response status is %v", resp.StatusCode)
+	}
 	return &InsertSampleData{}, nil
 }
 
@@ -275,4 +465,17 @@ func (api *DataAPI) GetMetricsFrowardHandlerFunc() http.HandlerFunc {
 		log.Info("get request", zap.String("url", request.URL.String()))
 		api.reserveProxy.ServeHTTP(writer, request)
 	}
+}
+
+func encodePoints(point *write.Point) (string, error) {
+	var buffer bytes.Buffer
+	e := lp.NewEncoder(&buffer)
+	e.SetFieldTypeSupport(lp.UintSupport)
+	e.FailOnFieldErr(true)
+	e.SetPrecision(time.Nanosecond)
+	_, err := e.Encode(point)
+	if err != nil {
+		return "", err
+	}
+	return buffer.String(), nil
 }

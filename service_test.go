@@ -108,8 +108,10 @@ func TestReportAPI_QueryNodeGraph(t *testing.T) {
 	ctx := context.Background()
 	nowTS := time.Now().Unix()
 	param := &QueryNodeGraphParam{
-		StartTS:       nowTS - 120*3600,
-		EndTS:         nowTS,
+		TsRange: TsRange{
+			StartTS: nowTS - 120*3600,
+			EndTS:   nowTS,
+		},
 		TiDBClusterID: "clinic",
 	}
 	data, err := rAPI.QueryNodeGraph(ctx, param)
