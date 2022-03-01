@@ -97,11 +97,7 @@ func (api *ReportAPI) QueryNodeGraph(ctx context.Context, param *QueryNodeGraphP
 	fluxQueryBase := `
 from(bucket: "%s")
 	|> range(start: %v, stop: %v)
-	|> filter(fn:(r) => r._measurement =="fast-tune-similarity" and r.tidb_cluster_id == "%v")
-	|> group(columns: ["id"])
-	|> first()
-	|> filter(fn:(r) => r._value >= 0.5)
-	|> sort(columns: ["id"])
+	|> filter(fn:(r) => r._measurement =="fast-tune-similarity" and r.tidb_cluster_id == "%v") |> group(columns: ["id"]) |> first() |> filter(fn:(r) => r._value >= 0.5) |> sort(columns: ["id"])
 `
 	fluxQuery := fmt.Sprintf(fluxQueryBase, api.bucket, param.StartTS, param.EndTS, param.TiDBClusterID)
 	// fmt.Println(fluxQuery)
@@ -230,6 +226,53 @@ from(bucket: "%s")
 	return data, nil
 }
 
+func (api *ReportAPI) QueryDynamicTextValue(ctx context.Context, param *QueryDynamicTextValueParam) (QueryDynamicTextValueData, error) {
+	fluxQueryBase := `
+from(bucket: "%s")
+	|> range(start: %v, stop: %v)
+	|> filter(fn:(r) => r._measurement =="%s" and r.tidb_cluster_id == "%v")
+	|> group(columns: ["_field"])
+	|> first()
+`
+	if len(param.Measurement) == 0 {
+		param.Measurement = "diagnosis_overview"
+	}
+	fluxQuery := fmt.Sprintf(fluxQueryBase, api.bucket, param.StartTS, param.EndTS, param.Measurement, param.TiDBClusterID)
+
+	result, err := api.queryAPI.Query(ctx, fluxQuery)
+	if err != nil {
+		log.Error("query influxdb failed", zap.Error(err))
+		return nil, err
+	}
+	defer result.Close()
+
+	data := make(QueryDynamicTextValueData)
+	for result.Next() {
+		rd := result.Record()
+		value, ok := rd.Value().(float64)
+		if !ok {
+			continue
+		}
+		switch rd.ValueByKey("format") {
+		case "float":
+			data[rd.Field()] = value
+		case "int":
+			data[rd.Field()] = int64(value)
+		case "unix_seconds":
+			data[rd.Field()] = int64(value)
+			data[fmt.Sprintf("%s_rfc3339", rd.Field())] = time.Unix(int64(value), 0).Format(time.RFC3339)
+		default:
+			data[rd.Field()] = value
+		}
+	}
+
+	if result.Err() != nil {
+		log.Error("query parsing failed", zap.Error(result.Err()))
+		return nil, err
+	}
+	return data, nil
+}
+
 // use `/api/v1/query` to get raw sample
 func (api *ReportAPI) queryMetrics(ctx context.Context, queryExpr string, ts int64) (model.Value, error) {
 	u := fmt.Sprintf("%s%s", api.vmEndpoint, "/api/v1/query")
@@ -278,7 +321,7 @@ func (api *ReportAPI) QueryNodeGraphV2(ctx context.Context, param *QueryNodeGrap
 		log.Error("convert to vector failed", zap.Any("value", v))
 		return nil, fmt.Errorf("")
 	}
-	log.Info("QueryNodeGraphV2", zap.Int("len", len(vector)))
+	// log.Info("QueryNodeGraphV2", zap.Int("len", len(vector)))
 	data := QueryNodeGraphData{
 		Nodes: make([]*Node, 0),
 		Edges: make([]*Edge, 0),
@@ -362,8 +405,108 @@ func (api *ReportAPI) QueryAnnotationsV2(ctx context.Context, param *QueryAnnota
 			data = append(data, item)
 		}
 	}
-	log.Info("QueryAnnotationsV2", zap.Int("len", len(data)))
+	// log.Info("QueryAnnotationsV2", zap.Int("len", len(data)))
 
+	return data, nil
+}
+
+func (api *ReportAPI) QueryDynamicTextValueV2(ctx context.Context, param *QueryDynamicTextValueParam) (QueryDynamicTextValueData, error) {
+	ts, interval := param.GetRollUpParam()
+	queryExpr := fmt.Sprintf(`{__name__=~"%s.*",tidb_cluster_id="%s"}[%s]`, param.Measurement, param.TiDBClusterID, interval)
+	v, err := api.queryMetrics(ctx, queryExpr, ts)
+	if err != nil {
+		return nil, err
+	}
+	matrix, ok := v.(model.Matrix)
+	if !ok {
+		log.Error("convert to vector failed", zap.Any("value", v))
+		return nil, fmt.Errorf("")
+	}
+	data := make(QueryDynamicTextValueData)
+	if len(param.Default1) > 0 {
+		for _, field := range strings.Split(param.Default1, ",") {
+			data[field] = 1
+		}
+
+	}
+	if len(matrix) == 0 {
+		return data, nil
+	}
+	perfix := param.Measurement
+	if !strings.HasSuffix(perfix, "_") {
+		perfix = fmt.Sprintf("%s_", perfix)
+	}
+	instanceCnt := make(map[string]int)
+	startTsToTimeIdx := make(map[int64]int)
+	for _, sample := range matrix {
+		if sample.Metric["type"] != "duration_seconds" {
+			continue
+		}
+		for idx, pair := range sample.Values {
+			startTsToTimeIdx[pair.Timestamp.Unix()] = idx + 1
+		}
+	}
+
+	for _, sample := range matrix {
+		metricsName := string(sample.Metric["__name__"])
+		fieldName := strings.TrimPrefix(metricsName, perfix)
+		if len(sample.Values) == 0 {
+			continue
+		}
+		if sample.Metric["aggr"] == "first" {
+			value := sample.Values[0].Value
+			data[fieldName] = float64(value)
+			continue
+		}
+
+		for _, pair := range sample.Values {
+			value := pair.Value
+			idx, ok := startTsToTimeIdx[pair.Timestamp.Unix()]
+			if !ok {
+				continue
+			}
+			switch sample.Metric["type"] {
+			case "float":
+				key := fmt.Sprintf("%s_time_%d", fieldName, idx)
+				data[key] = float64(value)
+			case "int":
+				key := fmt.Sprintf("%s_time_%d", fieldName, idx)
+				data[key] = int64(value)
+			case "duration_seconds":
+				key := fmt.Sprintf("%s_%d", fieldName, idx)
+				seconds := int64(value)
+				startUnix := pair.Timestamp.Unix()
+				endUnix := startUnix + seconds
+				data[key] = 1
+				data[fmt.Sprintf("%s_start_unix", key)] = startUnix
+				data[fmt.Sprintf("%s_end_unix", key)] = endUnix
+				data[fmt.Sprintf("%s_start_unix_rfc3339", key)] = time.Unix(startUnix, 0).Format(time.RFC3339)
+				data[fmt.Sprintf("%s_end_unix_rfc3339", key)] = time.Unix(endUnix, 0).Format(time.RFC3339)
+			case "unix_seconds":
+				key := fmt.Sprintf("%s_time_%d", fieldName, idx)
+				data[key] = int64(value)
+				data[fmt.Sprintf("%s_rfc3339", key)] = time.Unix(int64(value), 0).Format(time.RFC3339)
+			case "address":
+				if value == 0 {
+					continue
+				}
+				if _, ok := instanceCnt[fieldName]; !ok {
+					instanceCnt[fieldName] = 1
+				} else {
+					instanceCnt[fieldName]++
+				}
+				cnt := instanceCnt[fieldName]
+				instanceKey := fmt.Sprintf("%s_time_%d_%d", fieldName, idx, cnt)
+				instanceAddKey := fmt.Sprintf("%s_time_%d_%d_addr", fieldName, idx, cnt)
+				instanceAddr := sample.Metric["instance"]
+				data[instanceAddKey] = string(instanceAddr)
+				data[instanceKey] = int64(value)
+			default:
+				key := fmt.Sprintf("%s_time_%d", fieldName, idx)
+				data[key] = value
+			}
+		}
+	}
 	return data, nil
 }
 
@@ -462,7 +605,7 @@ func NewDataAPI(endpoint string) (*DataAPI, error) {
 
 func (api *DataAPI) GetMetricsFrowardHandlerFunc() http.HandlerFunc {
 	return func(writer http.ResponseWriter, request *http.Request) {
-		log.Info("get request", zap.String("url", request.URL.String()))
+		// log.Info("get request", zap.String("url", request.URL.String()))
 		api.reserveProxy.ServeHTTP(writer, request)
 	}
 }

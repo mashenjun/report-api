@@ -43,6 +43,8 @@ func main() {
 	router.HandleFunc("/node_graph/v2", ep.QueryNodeGraphV2(reportAPI)).Methods(http.MethodGet)
 	router.HandleFunc("/annotations", ep.QueryAnnotation(reportAPI)).Methods(http.MethodGet)
 	router.HandleFunc("/annotations/v2", ep.QueryAnnotationV2(reportAPI)).Methods(http.MethodGet)
+	router.HandleFunc("/dynamic_text_value", ep.QueryDynamicTextValue(reportAPI)).Methods(http.MethodGet)
+	router.HandleFunc("/dynamic_text_value/v2", ep.QueryDynamicTextValueV2(reportAPI)).Methods(http.MethodGet)
 	router.HandleFunc("/sample", ep.InsertSample(reportAPI)).Methods(http.MethodPost)
 	router.HandleFunc("/sample/v2", ep.InsertSampleV2(reportAPI)).Methods(http.MethodPost)
 	router.HandleFunc("/flush", ep.Flush(reportAPI)).Methods(http.MethodPost)
