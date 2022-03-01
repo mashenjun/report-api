@@ -139,6 +139,7 @@ type QueryDynamicTextValueParam struct {
 	TsRange
 	TiDBClusterID string `json:"tidb_cluster_id"`
 	Measurement   string `json:"measurement"`
+	Default1      string `json:"default_1"`
 }
 
 func (param *QueryDynamicTextValueParam) Validate() error {

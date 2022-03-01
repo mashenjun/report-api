@@ -33,13 +33,6 @@ func (ep *ReportEndpoint) QueryNodeGraph(api *ReportAPI) http.HandlerFunc {
 			return
 		}
 		ResponseWithJSON(w, data)
-		// bs, err := json.Marshal(data)
-		// if err != nil {
-		// 	log.Error("json marshal failed", zap.Error(err))
-		// 	ResponseWithStatus(w, http.StatusBadRequest)
-		// 	return
-		// }
-		// _, _ = w.Write(bs)
 	}
 }
 
@@ -63,13 +56,6 @@ func (ep *ReportEndpoint) QueryNodeGraphV2(api *ReportAPI) http.HandlerFunc {
 			return
 		}
 		ResponseWithJSON(w, data)
-		// bs, err := json.Marshal(data)
-		// if err != nil {
-		// 	log.Error("json marshal failed", zap.Error(err))
-		// 	ResponseWithStatus(w, http.StatusBadRequest)
-		// 	return
-		// }
-		// _, _ = w.Write(bs)
 	}
 }
 
@@ -151,6 +137,7 @@ func (ep *ReportEndpoint) QueryDynamicTextValueV2(api *ReportAPI) http.HandlerFu
 		param.StartTS, _ = strconv.ParseInt(req.URL.Query().Get("start_ts"), 10, 64)
 		param.EndTS, _ = strconv.ParseInt(req.URL.Query().Get("end_ts"), 10, 64)
 		param.Measurement = req.URL.Query().Get("measurement")
+		param.Default1 = req.URL.Query().Get("default_1")
 
 		if err := param.Validate(); err != nil {
 			log.Error("param validate failed", zap.Error(err))
